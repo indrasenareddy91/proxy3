@@ -68,9 +68,7 @@ app.post("/upload", async (req, res) => {
       console.error("Download failed:", key, response.status);
       return res.status(500).json({ status: "failed", key, code: response.status });
     }
-      console.error("Download failed:", key, response.status);
-      return res.status(500).json({ status: "failed", key, code: response.status });
-    }
+     
 
     const buffer = Buffer.from(await response.arrayBuffer());
 
