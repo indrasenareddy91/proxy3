@@ -52,6 +52,22 @@ app.post("/upload", async (req, res) => {
     });
 
     if (!response.ok) {
+       try {
+    const response = await fetch(url, {
+      headers: {
+        "Referer": "https://subdl.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 429) {
+  console.log(Object.fromEntries(response.headers.entries()));
+}
+
+      console.error("Download failed:", key, response.status);
+      return res.status(500).json({ status: "failed", key, code: response.status });
+    }
       console.error("Download failed:", key, response.status);
       return res.status(500).json({ status: "failed", key, code: response.status });
     }
