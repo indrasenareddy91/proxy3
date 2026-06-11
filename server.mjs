@@ -1,9 +1,11 @@
 // server.mjs
-// Deploy this on Render as a Node.js web service
-// Trigger from local: POST /upload with { url: "https://dl.subdl.com/..." }
 
 import express from "express";
-import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  HeadObjectCommand,
+} from "@aws-sdk/client-s3";
 
 const app = express();
 app.use(express.json());
@@ -24,7 +26,12 @@ const s3 = new S3Client({
 
 async function existsInR2(key) {
   try {
-    await s3.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+    await s3.send(
+      new HeadObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      })
+    );
     return true;
   } catch {
     return false;
@@ -33,61 +40,101 @@ async function existsInR2(key) {
 
 app.post("/upload", async (req, res) => {
   const { url } = req.body;
-  if (!url) return res.status(400).json({ error: "url required" });
 
-  const key = url.replace("https://dl.subdl.com/", "");
-  console.log("Processing:", key);
-
-  if (await existsInR2(key)) {
-    console.log("Already exists:", key);
-    return res.json({ status: "exists", key });
+  if (!url) {
+    return res.status(400).json({
+      error: "url required",
+    });
   }
 
+  const key = url.replace("https://dl.subdl.com/", "");
+
+  console.log("Processing:", key);
+
   try {
+    // Check if already exists
+    if (await existsInR2(key)) {
+      console.log("Already exists:", key);
+
+      return res.json({
+        status: "exists",
+        key,
+      });
+    }
+
+    // Download from SubDL
     const response = await fetch(url, {
       headers: {
-        "Referer": "https://subdl.com",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        Referer: "https://subdl.com",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       },
     });
 
-    if (!response.ok) {
-       try {
-    const response = await fetch(url, {
-      headers: {
-        "Referer": "https://subdl.com",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
-    });
-
+    // Handle failed downloads
     if (!response.ok) {
       if (response.status === 429) {
-  console.log(Object.fromEntries(response.headers.entries()));
-}
+        console.log("=== 429 DETECTED ===");
+        console.log(
+          JSON.stringify(
+            Object.fromEntries(response.headers.entries()),
+            null,
+            2
+          )
+        );
+      }
 
-      console.error("Download failed:", key, response.status);
-      return res.status(500).json({ status: "failed", key, code: response.status });
+      console.error(
+        `Download failed: ${key} | Status: ${response.status}`
+      );
+
+      return res.status(500).json({
+        status: "failed",
+        key,
+        code: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
     }
-     
 
+    // Convert response to buffer
     const buffer = Buffer.from(await response.arrayBuffer());
 
-    await s3.send(new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-      Body: buffer,
-      ContentType: "application/zip",
-    }));
+    // Upload to R2
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+        Body: buffer,
+        ContentType: "application/zip",
+      })
+    );
 
     console.log("Uploaded:", key);
-    res.json({ status: "uploaded", key });
+
+    return res.json({
+      status: "uploaded",
+      key,
+    });
   } catch (err) {
-    console.error("Error:", key, err.message);
-    res.status(500).json({ status: "error", key, error: err.message });
+    console.error("Error:", key, err);
+
+    return res.status(500).json({
+      status: "error",
+      key,
+      error: err.message,
+    });
   }
 });
 
-app.get("/health", (_, res) => res.json({ ok: true }));
+app.get("/health", (_, res) => {
+  res.json({
+    ok: true,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
